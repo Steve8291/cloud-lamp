@@ -1,0 +1,876 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+   <meta charset="UTF-8">
+   <title>Real-time Interactive 3D Particle System - Full Screen Explosion Effect</title>
+   <style>
+       /* Styles remain the same */
+       body { margin: 0; overflow: hidden; background-color: #000000; }
+      
+       #webcam-hidden {
+           position: absolute;
+           top: 0;
+           left: 0;
+           width: 1px;
+           height: 1px;
+           opacity: 0;
+           z-index: -1;
+       }
+
+
+       #webcam-feedback-container {
+           position: absolute;
+           bottom: 20px;
+           right: 20px;
+           width: 180px;
+           height: 135px;
+           border: 2px solid #fff;
+           border-radius: 10px;
+           overflow: hidden;
+           opacity: 1;
+           z-index: 100;
+           transition: opacity 0.3s ease;
+       }
+      
+       #webcam-feedback {
+           width: 100%;
+           height: 100%;
+           transform: scaleX(-1);
+       }
+
+
+       #loading-message {
+           position: absolute;
+           top: 50%;
+           left: 50%;
+           transform: translate(-50%, -50%);
+           color: white;
+           font-size: 24px;
+           z-index: 2000;
+       }
+   </style>
+</head>
+<body>
+
+
+   <video id="webcam-hidden" playsinline></video>
+  
+   <div id="webcam-feedback-container">
+       <video id="webcam-feedback" playsinline autoplay></video>
+   </div>
+
+
+   <div id="loading-message">
+       Requesting camera access...
+   </div>
+
+
+   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/hands.js"></script>
+   <script src="https://cdn.jsdelivr.net/npm/lil-gui@0.19/dist/lil-gui.umd.min.js"></script>
+
+
+   <script>
+       // --- 1. Global Variables and Three.js Initialization ---
+       let scene, camera, renderer, particles;
+       const particleCount = 10000;
+       let geometry, targetPositions;
+       const clock = new THREE.Clock();
+       let initialized = false;
+       let particleBaseColors;
+       const initialPositions = new Float32Array(particleCount * 3);
+      
+       // --- 2. Control Parameters ---
+       let handControlFactor = 0.0;
+      
+       // Rotation parameters
+       let targetRotationX = 0.0;
+       let targetRotationY = 0.0;
+       let targetRotationZ = 0.0;
+      
+       // Translation parameters
+       let targetPositionX = 0.0;
+       let targetPositionY = 0.0;
+       const POSITION_FOLLOW_STRENGTH = 6.0;
+       const MAX_SCREEN_MOVE = 40;
+      
+       // Explosion range constants
+       const EXPLOSION_WIDTH_X_Y = 250;
+       const EXPLOSION_DEPTH_Z = 150;
+
+
+       let isHandDetected = false;
+       let rotationActive = false;
+       let isDragging = false;
+       let mouseX = 0;
+       let mouseY = 0;
+       const MOUSE_SENSITIVITY = 0.005;
+       const ROTATION_FOLLOW_STRENGTH = 10.0;
+       let rotationVelocityX = 0.0;
+       let rotationVelocityY = 0.0;
+       const INERTIA_STRENGTH = 1.8;
+       const DAMPING_FACTOR = 0.94; 
+       const ROTATION_RANGE = Math.PI * 0.6;
+       const MAX_DIST_OPEN = 0.35;   
+       const MIN_DIST_CLOSED = 0.10;   
+       const PARTICLE_MOVE_SPEED = 2.5;
+
+
+       // --- 3. UI Control Panel Settings ---
+       const settings = {
+           shape: 'Heart', // 爱心 -> Heart
+           color: '#ff0077',
+           particleSize: 8,
+           inertia: true,
+           controlCameraFeedback: true,
+           fullscreen: () => {
+               document.body.requestFullscreen();
+           }
+       };
+
+
+       // --- 4. Initialization Flow Control ---
+       const videoHidden = document.getElementById('webcam-hidden');
+       const videoFeedback = document.getElementById('webcam-feedback');
+       const loadingMessage = document.getElementById('loading-message');
+       const webcamFeedbackContainer = document.getElementById('webcam-feedback-container');
+
+
+       getCameraAccess();
+
+
+       function getCameraAccess() {
+           if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+               navigator.mediaDevices.getUserMedia({ video: true })
+                   .then(stream => {
+                       videoHidden.srcObject = stream;
+                       videoFeedback.srcObject = stream;
+
+
+                       videoHidden.onloadedmetadata = () => {
+                           videoHidden.play();
+                           videoFeedback.play();
+                           loadingMessage.style.display = 'none';
+                          
+                           initThreeJS();
+                           initMediaPipe(videoHidden);
+                           initMouseControl();
+                           updateCameraFeedbackVisibility(settings.controlCameraFeedback);
+                           animate();
+                       };
+                   })
+                   .catch(err => {
+                       console.error('Cannot access camera:', err);
+                       loadingMessage.innerText = 'Cannot access camera. Please check permissions.';
+                   });
+           } else {
+               loadingMessage.innerText = 'Browser does not support camera access (getUserMedia).';
+           }
+       }
+      
+       function updateCameraFeedbackVisibility(show) {
+           webcamFeedbackContainer.style.opacity = show ? 1 : 0;
+           webcamFeedbackContainer.style.pointerEvents = show ? 'auto' : 'none';
+       }
+
+
+       function initThreeJS() {
+           if (initialized) return;
+           initialized = true;
+
+
+           scene = new THREE.Scene();
+           scene.fog = new THREE.FogExp2(0x000000, 0.001);
+
+
+           camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+           camera.position.z = 100;
+
+
+           renderer = new THREE.WebGLRenderer({ antialias: true });
+           renderer.setPixelRatio(window.devicePixelRatio);
+           renderer.setSize(window.innerWidth, window.innerHeight);
+          
+           // Force set renderer clear color to black
+           renderer.setClearColor(0x000000, 1);
+
+
+           document.body.appendChild(renderer.domElement);
+
+
+           createParticles(settings.color);
+           initGUI();
+
+
+           window.addEventListener('resize', onWindowResize, false);
+       }
+
+
+       function onWindowResize() {
+           camera.aspect = window.innerWidth / window.innerHeight;
+           camera.updateProjectionMatrix();
+           renderer.setSize(window.innerWidth, window.innerHeight);
+       }
+
+
+       // --- 5. Particle Creation and Color Generation ---
+       function createParticles(baseColorHex) {
+          
+           if (particles) {
+               updateParticleColors(baseColorHex);
+               return;
+           }
+
+
+           geometry = new THREE.BufferGeometry();
+           const positions = new Float32Array(particleCount * 3);
+           targetPositions = new Float32Array(particleCount * 3);
+           const sizes = new Float32Array(particleCount);
+           particleBaseColors = new Float32Array(particleCount * 3);
+
+
+           for (let i = 0; i < particleCount; i++) {
+               initialPositions[i * 3] = (Math.random() - 0.5) * 100;
+               initialPositions[i * 3 + 1] = (Math.random() - 0.5) * 100;
+               initialPositions[i * 3 + 2] = (Math.random() - 0.5) * 100;
+               positions[i * 3] = initialPositions[i * 3];
+               positions[i * 3 + 1] = initialPositions[i * 3 + 1];
+               positions[i * 3 + 2] = initialPositions[i * 3 + 2];
+              
+               sizes[i] = (Math.random() * 0.7 + 0.3) * settings.particleSize;
+           }
+
+
+           geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+           geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+           geometry.setAttribute('color', new THREE.BufferAttribute(particleBaseColors, 3));
+          
+           const textureLoader = new THREE.TextureLoader();
+           const texture = textureLoader.load('https://threejs.org/examples/textures/sprites/disc.png');
+
+
+           const particleMaterial = new THREE.PointsMaterial({
+               size: settings.particleSize,
+               map: texture,
+               transparent: true,
+               blending: THREE.AdditiveBlending,
+               sizeAttenuation: true,
+               vertexColors: true
+           });
+
+
+           particles = new THREE.Points(geometry, particleMaterial);
+           scene.add(particles);
+          
+           particles.position.set(0, 0, 0);
+
+
+           setParticleShape(settings.shape);
+           updateParticleColors(settings.color);
+       }
+      
+       function updateParticleColors(newBaseColorHex) {
+           const baseColor = new THREE.Color(newBaseColorHex);
+           const colors = geometry.attributes.color.array;
+
+
+           for (let i = 0; i < particleCount; i++) {
+               const i3 = i * 3;
+              
+               const color = baseColor.clone();
+              
+               const hueShift = (Math.random() - 0.5) * 0.05;
+               const saturationShift = (Math.random() - 0.5) * 0.15;
+               const lightnessShift = (Math.random() - 0.5) * 0.2;
+
+
+               color.offsetHSL(hueShift, saturationShift, lightnessShift);
+
+
+               particleBaseColors[i3] = color.r;
+               particleBaseColors[i3 + 1] = color.g;
+               particleBaseColors[i3 + 2] = color.b;
+              
+               colors[i3] = color.r;
+               colors[i3 + 1] = color.g;
+               colors[i3 + 2] = color.b;
+           }
+          
+           geometry.attributes.color.needsUpdate = true;
+       }
+
+
+       function updateChristmasTreeColors(baseColorHex) {
+           const colors = geometry.attributes.color.array;
+           const baseColor = new THREE.Color(baseColorHex);
+
+
+           for (let i = 0; i < particleCount; i++) {
+               const i3 = i * 3;
+               const particleType = i / particleCount;
+
+
+               let color;
+              
+               if (particleType < 0.75) {
+                   color = baseColor.clone();
+                   color.getHSL(color);
+                   color.s = THREE.MathUtils.clamp(color.s * 0.5 + 0.3, 0.4, 0.8);
+                   color.h = THREE.MathUtils.clamp(0.25 + (Math.random() - 0.5) * 0.05, 0.2, 0.3);
+                   color.l = THREE.MathUtils.clamp(color.l * 0.5 + 0.15, 0.15, 0.5);
+
+
+               } else if (particleType < 0.80) {
+                   color = new THREE.Color('#ffff00');
+                   color.offsetHSL(0, 0, (Math.random() - 0.5) * 0.3);
+
+
+               } else if (particleType < 0.866) {
+                   color = new THREE.Color('#ff2222');
+               } else if (particleType < 0.933) {
+                   color = new THREE.Color('#ffc0cb');
+               } else {
+                   color = new THREE.Color('#00ccff');
+               }
+
+
+               particleBaseColors[i3] = color.r;
+               particleBaseColors[i3 + 1] = color.g;
+               particleBaseColors[i3 + 2] = color.b;
+              
+               colors[i3] = color.r;
+               colors[i3 + 1] = color.g;
+               colors[i3 + 2] = color.b;
+           }
+           geometry.attributes.color.needsUpdate = true;
+       }
+
+
+
+
+       // --- 6. Shape Generation Functions ---
+      
+       function getSimpleHeartPoint(u, w) {
+          
+           const t = 2 * Math.PI * u;
+          
+           // Point down (smooth version of the original formula)
+           const X_2D = 16 * Math.pow(Math.sin(t), 3);
+           const Y_2D = (
+               13 * Math.cos(t) -
+               5 * Math.cos(2 * t) -
+               2 * Math.cos(3 * t) -
+               Math.cos(4 * t)
+           );
+
+
+           const R_max = Math.sqrt(X_2D * X_2D + Y_2D * Y_2D);
+
+
+           const R_current = R_max * Math.cbrt(w);
+          
+           const angle = Math.atan2(Y_2D, X_2D);
+
+
+           const X_vol = R_current * Math.cos(angle);
+           const Y_vol = R_current * Math.sin(angle);
+          
+           const Z_offset = (Math.random() - 0.5) * 15;
+
+
+           // Vertical offset: center the heart top dip (Y_2D approx 11.5) at Y=0
+           const CENTER_Y_OFFSET = -11.5;
+
+
+           return {
+               x: X_vol,
+               y: Y_vol + CENTER_Y_OFFSET,
+               z: Z_offset
+           };
+       }
+
+
+       function generateTargetPositions(shape) {
+           const newTargetPositions = new Float32Array(particleCount * 3);
+           const scale = 40;
+          
+           const backgroundRatio = 0.05;
+           const backgroundRadius = 300;
+           const backgroundParticlesCount = Math.floor(particleCount * backgroundRatio);
+          
+           const coreRatio = 0.3;
+           const coreScale = scale * 0.5;
+           const ringRadiusInner = coreScale * 2.5;
+           const ringRadiusOuter = scale * 2.5;
+           const numRandomOrbits = 12;
+           const orbitGap = (ringRadiusOuter - ringRadiusInner) / numRandomOrbits;
+          
+           const treeScale = scale * 2.5;
+           const treeHeight = treeScale * 1.2;
+
+
+           for (let i = 0; i < particleCount; i++) {
+               let x, y, z;
+              
+               if (i < backgroundParticlesCount) {
+                   x = (Math.random() - 0.5) * backgroundRadius;
+                   y = (Math.random() - 0.5) * backgroundRadius;
+                   z = (Math.random() - 0.5) * backgroundRadius;
+              
+               } else {
+                   const normalizedIndex = (i - backgroundParticlesCount) / (particleCount - backgroundParticlesCount);
+
+
+                   switch (shape) {
+                       case 'Heart': // 爱心 -> Heart
+                          
+                           const u_h = Math.random();
+                           const w_h = Math.random();
+                          
+                           let { x: hx, y: hy, z: hz } = getSimpleHeartPoint(u_h, w_h);
+                          
+                           x = hx * 2.0;
+                           y = hy * 2.0;
+                           z = hz * 2.0;
+                          
+                           break;
+
+
+                       case 'Saturn': // 土星 -> Saturn
+                          
+                           if (normalizedIndex < coreRatio) {
+                               const u = Math.random() * 2 * Math.PI;
+                               const v = Math.random() * Math.PI;
+                               const r = coreScale * Math.cbrt(Math.random());
+                               x = r * Math.cos(u) * Math.sin(v);
+                               y = r * Math.sin(u) * Math.sin(v);
+                               z = r * Math.cos(v);
+                              
+                           } else {
+                               const orbitIndex = Math.floor(Math.random() * numRandomOrbits);
+                               const orbitWidthFactor = Math.random() * 0.2 + 0.8;
+                               const currentOrbitGap = orbitGap * orbitWidthFactor;
+                               const baseR = ringRadiusInner + orbitIndex * orbitGap;
+                               const R_offset = (Math.random() - 0.5) * currentOrbitGap * (Math.random() * 0.4 + 0.6);
+                               const R = baseR + R_offset;
+                               const theta = Math.random() * 2 * Math.PI;
+                              
+                               x = R * Math.cos(theta);
+                               z = R * Math.sin(theta);
+                               y = (Math.random() - 0.5) * (1.5 + Math.random() * 2.0);
+                           }
+                           break;
+
+
+                       case 'Christmas Tree': // 圣诞树 -> Christmas Tree
+                          
+                           const particleType = normalizedIndex;
+                          
+                           if (particleType < 0.75) {
+                               const y_tree = Math.random() * treeHeight - treeHeight * 0.4;
+                               const radius_at_y = (treeHeight - (y_tree + treeHeight * 0.4)) / treeHeight * treeScale * 0.5 + 1;
+                               const theta_tree = Math.random() * 2 * Math.PI;
+                               const r_tree = Math.random() * radius_at_y;
+                              
+                               x = r_tree * Math.cos(theta_tree);
+                               z = r_tree * Math.sin(theta_tree);
+                               y = y_tree;
+                          
+                           } else if (particleType < 0.80) {
+                               x = (Math.random() - 0.5) * 5;
+                               y = treeHeight * 0.6 + (Math.random() * 3);
+                               z = (Math.random() - 0.5) * 5;
+                          
+                           } else {
+                               const decoY = Math.random() * treeHeight - treeHeight * 0.4;
+                               const decoRMax = (treeHeight - (decoY + treeHeight * 0.4)) / treeHeight * treeScale * 0.5;
+
+
+                               const theta_deco = Math.random() * 2 * Math.PI;
+                               const r_deco = decoRMax * (Math.random() * 0.4 + 0.6);
+                              
+                               x = r_deco * Math.cos(theta_deco);
+                               z = r_deco * Math.sin(theta_deco);
+                               y = decoY + (Math.random() - 0.5) * 8;
+                           }
+                           break;
+                      
+                       default:
+                           x = initialPositions[i * 3];
+                           y = initialPositions[i * 3 + 1];
+                           z = initialPositions[i * 3 + 2];
+                   }
+               }
+              
+               newTargetPositions[i * 3] = x;
+               newTargetPositions[i * 3 + 1] = y;
+               newTargetPositions[i * 3 + 2] = z;
+           }
+           return newTargetPositions;
+       }
+
+
+       function setParticleShape(shapeName) {
+           targetPositions = generateTargetPositions(shapeName);
+           handControlFactor = 1.0;
+          
+           if (shapeName === 'Christmas Tree') {
+               updateChristmasTreeColors(settings.color);
+           } else {
+               updateParticleColors(settings.color);
+           }
+       }
+      
+       // --- 7. UI Panel Initialization ---
+       function initGUI() {
+           const gui = new lil.GUI();
+           gui.domElement.style.color = '#fff';
+           gui.domElement.style.fontSize = '14px';
+
+
+           const modelFolder = gui.addFolder('Model Settings 🔮'); // 模型设置 -> Model Settings
+           modelFolder.add(settings, 'shape', ['Heart', 'Saturn', 'Christmas Tree']).name('Select Model').onChange(newShape => { // 选择模型 -> Select Model
+               setParticleShape(newShape);
+           });
+          
+           const visualFolder = gui.addFolder('Visual & Interaction Adjustments ⚙️'); // 视觉与交互调整 -> Visual & Interaction Adjustments
+          
+           visualFolder.add(settings, 'controlCameraFeedback').name('Show Camera Feedback').onChange(show => { // 显示摄像头反馈 -> Show Camera Feedback
+               updateCameraFeedbackVisibility(show);
+           });
+
+
+           visualFolder.addColor(settings, 'color').name('Base Color').onChange(newColor => { // 基础颜色 -> Base Color
+               if (settings.shape === 'Christmas Tree') {
+                   updateChristmasTreeColors(newColor);
+               } else {
+                   updateParticleColors(newColor);
+               }
+           });
+
+
+           visualFolder.add(settings, 'particleSize', 1, 20).name('Particle Size').onChange(newSize => { // 粒子大小 -> Particle Size
+               particles.material.size = newSize;
+               settings.particleSize = newSize;
+           });
+          
+           visualFolder.add(settings, 'inertia').name('Rotation Inertia (Smoothness)'); // 旋转惯性 (丝滑度) -> Rotation Inertia (Smoothness)
+           visualFolder.open();
+
+
+           gui.add(settings, 'fullscreen').name('Fullscreen 🚀').onFinishChange(value => { // 全屏显示 -> Fullscreen
+               settings.fullscreen();
+           });
+          
+           // Ensure GUI panel is open by default
+           gui.open();
+       }
+
+
+       // --- 8. MediaPipe Hands Integration ---
+       let hands;
+       function initMediaPipe(videoElement) {
+           hands = new Hands({
+               locateFile: (file) => {
+                   return `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/${file}`;
+               }
+           });
+           hands.setOptions({
+               maxNumHands: 1,
+               modelComplexity: 1,
+               minDetectionConfidence: 0.5,
+               minTrackingConfidence: 0.5
+           });
+           hands.onResults(onResults);
+           const sendFrame = async () => {
+               if (videoElement.readyState >= 2) {
+                   await hands.send({ image: videoElement });
+               }
+               requestAnimationFrame(sendFrame);
+           };
+           requestAnimationFrame(sendFrame);
+       }
+
+
+       function onResults(results) {
+           isHandDetected = results.multiHandLandmarks && results.multiHandLandmarks.length > 0;
+          
+           if (!isHandDetected) {
+               handControlFactor = 0.0;
+               rotationActive = false;
+               return;
+           }
+
+
+           const landmarks = results.multiHandLandmarks[0];
+           const thumbTip = landmarks[4];
+           const indexTip = landmarks[8];
+          
+           const dist = Math.sqrt(
+               Math.pow(thumbTip.x - indexTip.x, 2) +
+               Math.pow(thumbTip.y - indexTip.y, 2)
+           );
+
+
+           if (dist > MAX_DIST_OPEN) {
+               handControlFactor = -1.0; // 💥 Trigger explosion/dispersion
+               rotationActive = false;
+           } else if (dist < MIN_DIST_CLOSED) {
+               handControlFactor = 1.0;
+               rotationActive = false;
+           } else {
+               rotationActive = true;
+           }
+
+
+           const controlPointX = indexTip.x;
+           const controlPointY = indexTip.y;
+          
+           if (rotationActive) {
+               // 1. Rotation control
+               targetRotationY = (0.5 - controlPointX) * 2 * ROTATION_RANGE * 1.0;
+               targetRotationX = (controlPointY - 0.5) * 2 * ROTATION_RANGE * 1.0;
+
+
+               // 2. Translation control (Heart top center follows hand)
+               targetPositionX = (0.5 - controlPointX) * 2 * MAX_SCREEN_MOVE;
+               targetPositionY = (0.5 - controlPointY) * 2 * MAX_SCREEN_MOVE;
+           }
+          
+           const middleMCP = landmarks[9];
+           const pinkyMCP = landmarks[17];
+           const tiltDifference = middleMCP.y - pinkyMCP.y;
+           targetRotationZ = THREE.MathUtils.clamp(tiltDifference * 0.8, -ROTATION_RANGE, ROTATION_RANGE);
+       }
+      
+       // --- 9. Mouse/Touch Control Integration ---
+       function initMouseControl() {
+           document.addEventListener('mousedown', onMouseDown);
+           document.addEventListener('mousemove', onMouseMove);
+           document.addEventListener('mouseup', onMouseUp);
+           document.addEventListener('touchstart', onTouchStart);
+           document.addEventListener('touchmove', onTouchMove);
+           document.addEventListener('touchend', onTouchEnd);
+       }
+
+
+       function onMouseDown(event) {
+           if (!isHandDetected) {
+               isDragging = true;
+               mouseX = event.clientX;
+               mouseY = event.clientY;
+               handControlFactor = 0.0;
+               rotationActive = false;
+              
+               targetPositionX = particles.position.x;
+               targetPositionY = particles.position.y;
+           }
+       }
+
+
+       function onMouseMove(event) {
+           if (isDragging && !isHandDetected) {
+               const deltaX = event.clientX - mouseX;
+               const deltaY = event.clientY - mouseY;
+              
+               // Rotation control
+               targetRotationY += deltaX * MOUSE_SENSITIVITY;
+               targetRotationX += deltaY * MOUSE_SENSITIVITY;
+              
+               // Mouse translation control
+               const normalizedX = (event.clientX / window.innerWidth) * 2 - 1;
+               const normalizedY = -(event.clientY / window.innerHeight) * 2 + 1;
+              
+               targetPositionX = normalizedX * MAX_SCREEN_MOVE * (window.innerWidth / window.innerHeight);
+               targetPositionY = normalizedY * MAX_SCREEN_MOVE;
+              
+               mouseX = event.clientX;
+               mouseY = event.clientY;
+           }
+       }
+
+
+       function onMouseUp() {
+           isDragging = false;
+       }
+
+
+       function onTouchStart(event) {
+           if (event.touches.length === 1 && !isHandDetected) {
+               isDragging = true;
+               mouseX = event.touches[0].clientX;
+               mouseY = event.touches[0].clientY;
+               handControlFactor = 0.0;
+               rotationActive = false;
+              
+               targetPositionX = particles.position.x;
+               targetPositionY = particles.position.y;
+           }
+       }
+
+
+       function onTouchMove(event) {
+           if (isDragging && event.touches.length === 1 && !isHandDetected) {
+               const deltaX = event.touches[0].clientX - mouseX;
+               const deltaY = event.touches[0].clientY - mouseY;
+              
+               // Rotation control
+               targetRotationY += deltaX * MOUSE_SENSITIVITY;
+               targetRotationX += deltaY * MOUSE_SENSITIVITY;
+              
+               // Touchpad translation control
+               const normalizedX = (event.touches[0].clientX / window.innerWidth) * 2 - 1;
+               const normalizedY = -(event.touches[0].clientY / window.innerHeight) * 2 + 1;
+              
+               targetPositionX = normalizedX * MAX_SCREEN_MOVE * (window.innerWidth / window.innerHeight);
+               targetPositionY = normalizedY * MAX_SCREEN_MOVE;
+              
+               mouseX = event.touches[0].clientX;
+               mouseY = event.touches[0].clientY;
+           }
+       }
+
+
+       function onTouchEnd() {
+           isDragging = false;
+       }
+
+
+       // 10. Animation Loop
+      
+       // Core: Generate full-screen dispersed random target positions (limited depth)
+       const randomTargetPositions = new Float32Array(particleCount * 3);
+       for (let i = 0; i < particleCount; i++) {
+           // X/Y axes: Increase random range to cover the entire screen
+           randomTargetPositions[i * 3] = (Math.random() - 0.5) * EXPLOSION_WIDTH_X_Y * 2;
+           randomTargetPositions[i * 3 + 1] = (Math.random() - 0.5) * EXPLOSION_WIDTH_X_Y * 2;
+          
+           // Z axis: Limit depth to avoid particles scattering too far
+           randomTargetPositions[i * 3 + 2] = (Math.random() - 0.5) * EXPLOSION_DEPTH_Z * 2;
+       }
+
+
+       const tempColor = new THREE.Color();
+       const baseHsl = {h: 0, s: 0, l: 0};
+
+
+       function animate() {
+           if (!initialized) {
+               requestAnimationFrame(animate);
+               return;
+           }
+          
+           requestAnimationFrame(animate);
+           const timeDelta = clock.getDelta();
+
+
+           // 1. **Update Particle Positions (Shape change)**
+           const currentPositions = geometry.attributes.position.array;
+           const control = handControlFactor;
+           const speed = PARTICLE_MOVE_SPEED;
+          
+           let finalTargetPositions = null;
+           if (control > 0) {
+               finalTargetPositions = targetPositions;
+           } else if (control < 0) {
+               finalTargetPositions = randomTargetPositions; // Use the new limited depth dispersion range
+           }
+
+
+           let moveFactor = (control !== 0.0) ? speed : 0;
+
+
+           if (finalTargetPositions) {
+               for (let i = 0; i < particleCount; i++) {
+                   const i3 = i * 3;
+                   const targetX = finalTargetPositions[i3];
+                   const targetY = finalTargetPositions[i3 + 1];
+                   const targetZ = finalTargetPositions[i3 + 2];
+                   const currentX = currentPositions[i3];
+                   const currentY = currentPositions[i3 + 1];
+                   const currentZ = currentPositions[i3 + 2];
+                   const factor = moveFactor * timeDelta;
+
+
+                   currentPositions[i3] += (targetX - currentX) * factor;
+                   currentPositions[i3 + 1] += (targetY - currentY) * factor;
+                   currentPositions[i3 + 2] += (targetZ - currentZ) * factor;
+               }
+               geometry.attributes.position.needsUpdate = true;
+           }
+          
+           // ** Dynamic Color Change **
+           const colors = geometry.attributes.color.array;
+           for (let i = 0; i < particleCount; i++) {
+               const i3 = i * 3;
+               tempColor.setRGB(particleBaseColors[i3], particleBaseColors[i3 + 1], particleBaseColors[i3 + 2]);
+               tempColor.getHSL(baseHsl);
+               const phase = i * 0.1 + clock.elapsedTime * 3;
+               const flicker = Math.sin(phase) * 0.05 + 0.1;
+               baseHsl.l = THREE.MathUtils.clamp(baseHsl.l * 0.8 + flicker, 0.2, 1);
+               tempColor.setHSL(baseHsl.h, baseHsl.s, baseHsl.l);
+               colors[i3] = tempColor.r;
+               colors[i3 + 1] = tempColor.g;
+               colors[i3 + 2] = tempColor.b;
+           }
+           geometry.attributes.color.needsUpdate = true;
+
+
+
+
+           // 2. **Calculate and Apply Model Translation**
+           if (rotationActive || isDragging) {
+               const posFactor = POSITION_FOLLOW_STRENGTH * timeDelta;
+              
+               particles.position.x += (targetPositionX - particles.position.x) * posFactor;
+               particles.position.y += (targetPositionY - particles.position.y) * posFactor;
+           }
+
+
+           // 3. **Calculate and Apply Rotation**
+           const followStrength = ROTATION_FOLLOW_STRENGTH * timeDelta;
+           let rotationFollowed = false;
+
+
+           if (rotationActive || isDragging) {
+               const diffX = targetRotationX - particles.rotation.x;
+               const diffY = targetRotationY - particles.rotation.y;
+               const followRotationX = diffX * followStrength;
+               const followRotationY = diffY * followStrength;
+
+
+               particles.rotation.x += followRotationX;
+               particles.rotation.y += followRotationY;
+               particles.rotation.z += (targetRotationZ - particles.rotation.z) * followStrength;
+
+
+               rotationVelocityX = followRotationX * INERTIA_STRENGTH;
+               rotationVelocityY = followRotationY * INERTIA_STRENGTH;
+               rotationFollowed = true;
+           }
+          
+           if (!rotationFollowed && settings.inertia) {
+               particles.rotation.x += rotationVelocityX;
+               particles.rotation.y += rotationVelocityY;
+
+
+               rotationVelocityX *= DAMPING_FACTOR;
+               rotationVelocityY *= DAMPING_FACTOR;
+              
+               particles.rotation.z += (targetRotationZ - particles.rotation.z) * followStrength;
+
+
+               if (Math.abs(rotationVelocityX) < 0.0001) rotationVelocityX = 0;
+               if (Math.abs(rotationVelocityY) < 0.0001) rotationVelocityY = 0;
+           } else if (!rotationFollowed && !settings.inertia) {
+                particles.rotation.z += (targetRotationZ - particles.rotation.z) * followStrength;
+           }
+
+
+           renderer.render(scene, camera);
+       }
+
+
+   </script>
+</body>
+</html>

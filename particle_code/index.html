@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+   <meta charset="UTF-8">
+   <title>Real-time Interactive 3D Particle System - Full Screen Explosion Effect</title>
+   <style>
+       body { 
+           margin: 0; 
+           overflow: hidden; 
+           background-color: #000000; 
+       }
+      
+       #webcam-hidden {
+           position: absolute;
+           top: 0;
+           left: 0;
+           width: 1px;
+           height: 1px;
+           opacity: 0;
+           z-index: -1;
+       }
+
+       #webcam-feedback-container {
+           position: absolute;
+           bottom: 20px;
+           right: 20px;
+           width: 180px;
+           height: 135px;
+           border: 2px solid #fff;
+           border-radius: 10px;
+           overflow: hidden;
+           opacity: 1;
+           z-index: 100;
+           transition: opacity 0.3s ease;
+       }
+      
+       #webcam-feedback {
+           width: 100%;
+           height: 100%;
+           transform: scaleX(-1);
+       }
+
+       #loading-message {
+           position: absolute;
+           top: 50%;
+           left: 50%;
+           transform: translate(-50%, -50%);
+           color: white;
+           font-size: 24px;
+           z-index: 2000;
+       }
+   </style>
+</head>
+<body>
+
+   <video id="webcam-hidden" playsinline></video>
+  
+   <div id="webcam-feedback-container">
+       <video id="webcam-feedback" playsinline autoplay></video>
+   </div>
+
+   <div id="loading-message">
+       Requesting camera access...
+   </div>
+
+   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/hands.js"></script>
+   <script src="https://cdn.jsdelivr.net/npm/lil-gui@0.19/dist/lil-gui.umd.min.js"></script>
+
+   <script src="script.js"></script>
+</body>
+</html>

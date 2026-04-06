@@ -1,8 +1,14 @@
 body {
     font-family: Arial;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-around;
+    align-items: center;
     text-align: center;
-    margin: 0px auto;
-    padding-top: 20px;
+    margin: 0;
+    padding: 20px;
+    box-sizing: border-box;
 }
 
 .button {
@@ -20,4 +26,9 @@ body {
 
 .button.off{
     background-color: #568c59;
+}
+
+.button.active{
+    background-color: #ff6b9d;
+    color: white;
 }

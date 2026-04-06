@@ -1,4 +1,4 @@
-var gateway = `ws://s{window.location.host}/ws`;
+var gateway = `ws://${window.location.host}/ws`;
 var websocket;
 
 window.addEventListener("load", onLoad);
@@ -24,23 +24,31 @@ function onClose(event) {
     setTimeout(initWebSocket, 2000);
 }
 
+var activeButton = 1;
+
+function setActiveButton(ledId) {
+    if (ledId < 1 || ledId > 4) {
+        return;
+    }
+
+    for (var i = 1; i <= 4; i++) {
+        document.getElementById("button" + i).classList.remove('active');
+    }
+
+    activeButton = ledId;
+    document.getElementById("button" + activeButton).classList.add('active');
+}
+
 function onMessage(event) {
     var message = JSON.parse(event.data);
-    if (message.id == 1) {
-        document.getElementById("ledState").innerHTML = message.status == 1 ? "ON" : "OFF";
-        document.getElementById("button1").classList.toggle('off', message.status == 0);
-    } else if (message.id == 2) {
-        document.getElementById("ledState2").innerHTML = message.status == 1 ? "ON" : "OFF";
-        document.getElementById("button2").classList.toggle('off', message.status == 0);
-    } else if (message.id == 3) {
-        document.getElementById("ledState3").innerHTML = message.status == 1 ? "ON" : "OFF";
-        document.getElementById("button3").classList.toggle('off', message.status == 0);
-    } else if (message.id == 4) {
-        document.getElementById("ledState4").innerHTML = message.status == 1 ? "ON" : "OFF";
-        document.getElementById("button4").classList.toggle('off', message.status == 0);
+    if (message.id == 1 || message.id == 2 || message.id == 3 || message.id == 4) {
+        setActiveButton(message.id);
     }
 }
 
 function toggleLED(ledId) {
+    setActiveButton(ledId);
+
+    // Send the command
     websocket.send(JSON.stringify({ id: ledId }));
 }
