@@ -51,15 +51,15 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
   JsonDocument receivedJson; // Json object to hold received data from clients
   AwsFrameInfo *info = (AwsFrameInfo*)arg;
   if (info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT) {
-  data[len] = 0;
-  String message = (char*)data;
-  Serial.println(message);
+    data[len] = 0;
+    String message = (char*)data;
+    Serial.println(message);
 
-  deserializeJson(receivedJson, message);
+    deserializeJson(receivedJson, message);
 
-  lampMode = receivedJson["id"];
+    lampMode = receivedJson["id"];
 
-  notifyClients();
+    notifyClients();
   }
 }
 
@@ -109,18 +109,20 @@ void initAP() {
     }
 }
 
-  AwsFrameInfo *info = (AwsFrameInfo*)arg;
-  if (info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT) {
-  data[len] = 0;
-  String message = (char*)data;
-  Serial.println(message);
+//   AwsFrameInfo *info = (AwsFrameInfo*)arg;
+//   if (info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT) {
+//   data[len] = 0;
+//   String message = (char*)data;
+//   Serial.println(message);
 
-  deserializeJson(receivedJson, message);
+//   deserializeJson(receivedJson, message);
 
-  lampMode = receivedJson["id"];
+//   lampMode = receivedJson["id"];
 
-  notifyClients();
-  }
+//   notifyClients();
+// }
+
+
 void breathing() {
 
   uint8_t bri = beatsin8(15, 0, 255); 

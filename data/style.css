@@ -1,5 +1,5 @@
 body {
-    font-family: Arial;
+    font-family: Josefin Sans;
     height: 100vh;
     display: flex;
     flex-direction: column;
@@ -9,7 +9,20 @@ body {
     margin: 0;
     padding: 20px;
     box-sizing: border-box;
+    background-image: url('background.jpg');
+    background-repeat: no-repeat;
+    background-attachment: fixed;
+    background-size: cover;
 }
+
+h1 {
+    color: white;
+    font-size: 36px;
+    margin-bottom: 20px;
+    font-family: Georgia, 'Times New Roman', Times, serif;
+    font-weight: bold;
+}
+
 
 .button {
     background-color: #447f4a;
