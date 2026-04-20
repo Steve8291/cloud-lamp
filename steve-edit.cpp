@@ -26,13 +26,13 @@ const int BOOT_BUTTON_PIN = 0; // Built-in BOOT button on the ESP32
 const int touchPin = 4;
 const int threshold = 20;
 unsigned long lastDebounceTime = 0;
-unsigned long debounceDelay = 1000;
+unsigned long debounceDelay = 2000;
 int touchValue;
 int lampState = LOW;
 int buttonState;
 
-const int touchLowThreshold = 143; // Adjust this threshold based on your touch sensitivity needs
-const int touchHighThreshold = 214; // Adjust this threshold based on your touch sensitivity needs
+const int touchLowThreshold = 175; // Adjust this threshold based on your touch sensitivity needs
+const int touchHighThreshold = 200; // Adjust this threshold based on your touch sensitivity needs
 int lampMode = 1; // 1: thunderstorm, 2: breathing, 3: rainbow, 4: meteor
 
 

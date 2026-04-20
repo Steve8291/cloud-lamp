@@ -26,8 +26,8 @@ int lampState = LOW;
 int buttonState;
 static uint8_t Shue = 0;
 int lampMode = 1; // 1: thunderstorm, 2: breathing, 3: rainbow, 4: meteor
-
-
+const int touchLowThreshold = 120; // Adjust this threshold based on your touch sensitivity needs
+const int touchHighThreshold = 130; // Adjust this threshold based on your touch sensitivity needs
 // Change the ssid to your preferred WiFi network name
 // Password not needed if you want the AP (Access Point) to be open
 const char* ssid = "Arduino-ESP32";
@@ -185,7 +185,7 @@ void thunderstorm() {
 void updateLEDs(int touchValue){
   Serial.print("Value: ");
   Serial.println(touchValue);
-  if (touchValue >= 100 && touchValue <= 180){
+  if (touchValue >= touchLowThreshold && touchValue <= touchHighThreshold){
 
     if (lampState == LOW){
       lampState = HIGH;
