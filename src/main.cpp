@@ -33,7 +33,7 @@ int buttonState;
 
 const int touchLowThreshold = 143; // Adjust this threshold based on your touch sensitivity needs
 const int touchHighThreshold = 214; // Adjust this threshold based on your touch sensitivity needs
-int lampMode = 1; // 1: thunderstorm, 2: breathing, 3: rainbow, 4: meteor
+int lampMode = 2; // 1: thunderstorm, 2: breathing, 3: rainbow, 4: meteor
 
 
 CRGB leds[NUM_LEDS];
@@ -201,38 +201,43 @@ void updateLEDs(int touchValue) {
     static bool wasTouched = false;
     static unsigned long consecutiveTouchStart = 0;
     static bool isActivelyTouching = false;
-    bool isCurrentlyTouched = false;
+    
+    static float baseline = 255.0; 
+    static unsigned long lastBaselineUpdate = 0; // NEW: Speed limit tracker for the baseline
 
-    // Print the raw value every 500ms so we can keep monitoring
     static unsigned long lastPrintTime = 0;
     if (millis() - lastPrintTime > 500) {
-        Serial.print("Current touchValue: ");
-        Serial.println(touchValue);
+        Serial.print("Touch: ");
+        Serial.print(touchValue);
+        Serial.print(" | Baseline: ");
+        Serial.println(baseline);
         lastPrintTime = millis();
     }
 
-    // --- STATE-DEPENDENT THRESHOLDS ---
-    if (lampState == LOW) {
-        // When OFF, baseline is ~255. We look for a drop below 240 to register a touch.
-        isCurrentlyTouched = (touchValue < 240); 
-    } else {
-        // When ON, baseline is ~164. We look for a drop below 120 to register a touch.
-        // (You may need to tweak this "120" based on what the monitor shows when you touch it while ON!)
-        isCurrentlyTouched = (touchValue < 120); 
+    // 1. HARD LOCKOUT: Force baseline to track perfectly while settling
+    if (millis() - lastDebounceTime < debounceDelay) {
+        baseline = touchValue; 
+        return; 
     }
 
-    // Always check for a finger release
+    // 2. DYNAMIC THRESHOLD: Lowered to 25. The ON state range is compressed, 
+    // so touches don't cause as deep of a numerical drop.
+    bool isCurrentlyTouched = (touchValue < (baseline - 25));
+
+    // 3. ADAPT THE BASELINE (Speed-limited)
     if (!isCurrentlyTouched) {
+        // NEW: Only allow the baseline to adapt once every 20 milliseconds. 
+        // This prevents the baseline from instantly "swallowing" a light touch.
+        if (millis() - lastBaselineUpdate > 20) {
+            baseline = (baseline * 0.95) + (touchValue * 0.05);
+            lastBaselineUpdate = millis();
+        }
+        
         isActivelyTouching = false;
         wasTouched = false;
     }
 
-    // HARD LOCKOUT: Prevent toggling for 1 second after a state change
-    if (millis() - lastDebounceTime < debounceDelay) {
-        return; 
-    }
-
-    // TRUE DEBOUNCE
+    // 4. TRUE DEBOUNCE
     if (isCurrentlyTouched) {
         if (!isActivelyTouching) {
             consecutiveTouchStart = millis();
@@ -307,6 +312,8 @@ void loop() {
             // Visual feedback: Turn lamp solid Blue to indicate AP mode
             fill_solid(leds, NUM_LEDS, CRGB::Blue);
             FastLED.show();
+
+            server.end(); // Stop the web server to free up resources for the config portal
 
             WiFiManager wm;
             // Launch the portal on-demand
